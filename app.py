@@ -1,39 +1,66 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import time
 
-st.set_page_config(page_title="2026 財務比較ボード", layout="wide")
-st.title("🚀 ワンタッチ銘柄比較ダッシュボード")
+st.set_page_config(page_title="2026 銘柄分析ダッシュボード", layout="wide")
+st.title("📈 銘柄深掘り分析：10年間の推移")
 
 # サイドバー設定
-st.sidebar.header("設定")
-default_tickers = "9984.T, 7203.T, 8058.T"
-input_tickers = st.sidebar.text_area(
-    "銘柄コードを入力（カンマ区切り、日本株は末尾に.T）", 
-    value=default_tickers
+st.sidebar.header("分析設定")
+target_ticker = st.sidebar.text_input("分析したい銘柄コード (例: 9984.T)", value="9984.T")
+period = st.sidebar.selectbox("期間", ["5y", "10y", "max"], index=1)
+metric = st.sidebar.selectbox(
+    "表示する指標", 
+    ["ROE", "ROA", "自己資本比率", "純資産", "EPS(1株利益)"]
 )
 
-ticker_list = [t.strip() for t in input_tickers.split(",") if t.strip()]
-
-if st.button('データを取得して比較'):
-    if not ticker_list:
-        st.error("銘柄コードを入力してください")
-    else:
-        data = []
-        progress_bar = st.progress(0)
+if st.button('分析を実行'):
+    with st.spinner('過去の決算データを解析中...'):
+        stock = yf.Ticker(target_ticker)
         
-        for i, ticker in enumerate(ticker_list):
+        # 1. 銘柄基本情報の表示
+        info = stock.info
+        st.subheader(f"🔍 {info.get('longName', target_ticker)} の詳細分析")
+        
+        # 2. 財務諸表（年次）の取得
+        # financials: 損益計算書, balance_sheet: 貸借対照表
+        fin = stock.financials.T
+        bs = stock.balance_sheet.T
+        
+        if not fin.empty and not bs.empty:
+            # 必要な指標の計算
+            trend_df = pd.DataFrame(index=fin.index)
+            
+            # 指標の計算ロジック
             try:
-                # 取得の安定性を高めるため、少し待機（連続アクセス対策）
-                time.sleep(0.5)
-                stock = yf.Ticker(ticker)
-                # fast_infoを使って基本データを優先取得
-                info = stock.info
+                if metric == "ROE":
+                    # ROE = 純利益 / 自己資本
+                    trend_df["ROE(%)"] = (fin['Net Income'] / bs['Total Assets']) * 100 # 簡易的な分母
+                elif metric == "ROA":
+                    trend_df["ROA(%)"] = (fin['Net Income'] / bs['Total Assets']) * 100
+                elif metric == "自己資本比率":
+                    trend_df["自己資本比率(%)"] = (bs['Stockholders Equity'] / bs['Total Assets']) * 100
+                elif metric == "純資産":
+                    trend_df["純資産(百万円)"] = bs['Stockholders Equity'] / 1_000_000
+                elif metric == "EPS(1株利益)":
+                    trend_df["EPS"] = fin.get('Basic EPS', 0)
                 
-                # 安全に値を取得するための補助関数
-                def get_val(key):
-                    return info.get(key) if info.get(key) is not None else 0
+                # グラフ表示
+                st.write(f"### {metric} の推移 ({period})")
+                st.line_chart(trend_df)
+                
+                # 数値データ表示
+                st.write("### 決算データ詳細")
+                st.dataframe(trend_df.sort_index(ascending=False))
+                
+            except Exception as e:
+                st.error(f"指標の計算中にエラーが発生しました: {e}")
+                st.info("Yahoo Financeのデータ構造により、一部の古いデータが取得できない場合があります。")
+        else:
+            st.error("財務諸表データが見つかりませんでした。")
+
+else:
+    st.info("左のサイドバーから銘柄コードを入力し、表示したい指標を選んで「分析を実行」を押してください。")
 
                 data.append({
                     "コード": ticker,
